@@ -1,0 +1,1 @@
+# AI-Based-Smart-Adaptive-Network-for-Community-Assistance-Local-Communication-Public-Safety
