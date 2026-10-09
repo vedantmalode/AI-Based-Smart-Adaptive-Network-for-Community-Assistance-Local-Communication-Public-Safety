@@ -1,0 +1,92 @@
+/* Small, reusable foundations for screens as they move onto the shared system. */
+.ds-page {
+  min-height: 100vh;
+  background: var(--color-page);
+  color: var(--color-text);
+  color-scheme: light;
+}
+
+.ds-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.ds-control {
+  min-height: var(--space-touch-min);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.ds-button {
+  display: inline-flex;
+  min-height: var(--space-touch-min);
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  padding: 0.625rem 1rem;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.ds-button-primary {
+  background: var(--color-blue-600);
+  color: #fff;
+}
+
+.ds-button-emergency {
+  background: var(--color-red-600);
+  color: #fff;
+}
+
+.ds-button-secondary {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.ds-button:not(:disabled):hover {
+  filter: brightness(0.96);
+}
+
+.ds-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.ds-priority {
+  display: inline-flex;
+  min-height: 1.75rem;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: var(--radius-pill);
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ds-priority-low { color: #166534; background: #dcfce7; }
+.ds-priority-medium { color: #854d0e; background: #fef3c7; }
+.ds-priority-high { color: #9a3412; background: #ffedd5; }
+.ds-priority-critical { color: #991b1b; background: #fee2e2; }
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

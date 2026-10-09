@@ -1,18 +1,13 @@
 import React, { useState } from 'react';
 import { 
   AlertOctagon, 
-  CheckCircle2, 
   Users, 
   Truck, 
   Clock, 
-  Filter, 
   Search, 
-  ChevronRight, 
   BrainCircuit, 
-  ArrowUpDown, 
   History, 
-  ShieldCheck,
-  Edit3
+  CalendarDays,
 } from 'lucide-react';
 
 export default function IncidentTriageDashboard({ 
@@ -20,18 +15,27 @@ export default function IncidentTriageDashboard({
   volunteers, 
   resources, 
   onUpdateStatus, 
-  onSelectForDispatch 
+  onSelectForDispatch,
+  onOpenIncident,
 }) {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [priorityFilter, setPriorityFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useState('LIST');
   const [selectedIncidentForAudit, setSelectedIncidentForAudit] = useState(null);
 
   // Compute Command KPIs
   const criticalCount = incidents.filter(i => i.severity === 'CRITICAL' && i.status !== 'RESOLVED').length;
-  const activeCount = incidents.filter(i => i.status !== 'RESOLVED').length;
+  const activeCount = incidents.filter(i => !['RESOLVED', 'REJECTED'].includes(i.status)).length;
   const activeVolunteersCount = volunteers.filter(v => v.status === 'ACTIVE').length;
   const availableResourcesCount = resources.filter(r => r.status === 'AVAILABLE').length;
+  const responseTimes = incidents
+    .filter((incident) => incident.reportedAt && incident.lifecycle?.respondingAt)
+    .map((incident) => (new Date(incident.lifecycle.respondingAt) - new Date(incident.reportedAt)) / 60000)
+    .filter((minutes) => Number.isFinite(minutes) && minutes >= 0);
+  const averageResponseTime = responseTimes.length
+    ? `${(responseTimes.reduce((total, minutes) => total + minutes, 0) / responseTimes.length).toFixed(1)} min`
+    : '—';
 
   const filteredIncidents = incidents.filter(inc => {
     if (statusFilter !== 'ALL' && inc.status !== statusFilter) return false;
@@ -39,14 +43,43 @@ export default function IncidentTriageDashboard({
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       return (
-        inc.id.toLowerCase().includes(q) ||
-        inc.category.toLowerCase().includes(q) ||
-        inc.description.toLowerCase().includes(q) ||
-        inc.location.address.toLowerCase().includes(q)
+        (inc.id || '').toLowerCase().includes(q) ||
+        (inc.category || '').toLowerCase().includes(q) ||
+        (inc.description || '').toLowerCase().includes(q) ||
+        (inc.location?.address || '').toLowerCase().includes(q)
       );
     }
     return true;
-  });
+  }).sort((a, b) => (Number(b.priorityScore) || 0) - (Number(a.priorityScore) || 0)
+    || new Date(b.reportedAt || 0) - new Date(a.reportedAt || 0));
+
+  const timelineEvents = filteredIncidents.flatMap((incident) => {
+    const events = [];
+    const addEvent = (at, title, source = 'lifecycle') => {
+      const timestamp = at ? new Date(at) : null;
+      if (!timestamp || !Number.isFinite(timestamp.getTime())) return;
+      events.push({ incident, at: timestamp, title, source });
+    };
+
+    addEvent(incident.lifecycle?.reportedAt || incident.reportedAt, 'Incident reported');
+    [
+      ['verifiedAt', 'Incident verified'],
+      ['assignedAt', 'Response team assigned'],
+      ['respondingAt', 'Team responding'],
+      ['resolvedAt', 'Incident resolved'],
+    ].forEach(([field, title]) => addEvent(incident.lifecycle?.[field], title));
+    (incident.auditTimeline || []).forEach((item) => {
+      addEvent(item.at || item.timestamp || item.createdAt, item.event || 'Incident updated', 'audit');
+    });
+    return events;
+  }).sort((a, b) => b.at - a.at);
+
+  const timelineGroups = timelineEvents.reduce((groups, event) => {
+    const day = event.at.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    if (!groups.has(day)) groups.set(day, []);
+    groups.get(day).push(event);
+    return groups;
+  }, new Map());
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 animate-fade-in">
@@ -57,7 +90,7 @@ export default function IncidentTriageDashboard({
         <div className="glass-panel p-4 rounded-2xl border-l-4 border-l-red-500 space-y-1">
           <div className="flex justify-between items-center text-xs text-slate-400">
             <span>Critical Incidents</span>
-            <AlertOctagon className="w-4 h-4 text-red-500 animate-pulse" />
+            <AlertOctagon className="w-4 h-4 text-red-500" />
           </div>
           <div className="text-2xl font-extrabold text-white">{criticalCount}</div>
           <div className="text-[11px] text-red-400">Immediate Action Needed</div>
@@ -92,11 +125,11 @@ export default function IncidentTriageDashboard({
 
         <div className="glass-panel p-4 rounded-2xl border-l-4 border-l-purple-500 space-y-1 col-span-2 lg:col-span-1">
           <div className="flex justify-between items-center text-xs text-slate-400">
-            <span>Avg Response ETA</span>
+            <span>Avg Response Time</span>
             <BrainCircuit className="w-4 h-4 text-purple-400" />
           </div>
-          <div className="text-2xl font-extrabold text-white">4.8 min</div>
-          <div className="text-[11px] text-purple-300">AI Optimized Routing</div>
+          <div className="text-2xl font-extrabold text-white">{averageResponseTime}</div>
+          <div className="text-[11px] text-purple-300">{responseTimes.length} measured incident{responseTimes.length === 1 ? '' : 's'}</div>
         </div>
 
       </div>
@@ -117,6 +150,14 @@ export default function IncidentTriageDashboard({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+          <div className="inline-flex rounded-xl border border-slate-700 bg-slate-950 p-1" role="group" aria-label="Incident view">
+            <button type="button" onClick={() => setViewMode('LIST')} aria-pressed={viewMode === 'LIST'} className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${viewMode === 'LIST' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+              List
+            </button>
+            <button type="button" onClick={() => setViewMode('TIMELINE')} aria-pressed={viewMode === 'TIMELINE'} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${viewMode === 'TIMELINE' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+              <CalendarDays className="h-3.5 w-3.5" /> Timeline
+            </button>
+          </div>
           {/* Status Filter */}
           <select
             value={statusFilter}
@@ -146,6 +187,49 @@ export default function IncidentTriageDashboard({
         </div>
       </div>
 
+      {viewMode === 'TIMELINE' ? (
+        <section className="glass-panel rounded-2xl border border-slate-800 p-5 shadow-2xl" aria-label="Incident timeline">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-2 border-b border-slate-800 pb-4">
+            <div>
+              <h2 className="text-sm font-bold text-white">Incident timeline</h2>
+              <p className="mt-1 text-xs text-slate-400">Reports and recorded response activity, newest first.</p>
+            </div>
+            <span className="text-[11px] text-slate-500">{timelineEvents.length} timeline event{timelineEvents.length === 1 ? '' : 's'}</span>
+          </div>
+          {timelineEvents.length === 0 ? (
+            <p className="py-8 text-center text-xs text-slate-500">No dated incident activity matches the selected filters.</p>
+          ) : (
+            <div className="space-y-7">
+              {[...timelineGroups].map(([day, events]) => (
+                <div key={day}>
+                  <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">{day}</h3>
+                  <div className="relative ml-2 space-y-3 border-l border-slate-700 pl-5">
+                    {events.map((event, index) => (
+                      <button key={`${event.incident.id}-${event.at.toISOString()}-${event.source}-${index}`} type="button" onClick={() => onOpenIncident?.(event.incident)} className="relative block w-full rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-left transition-colors hover:border-blue-500/50 hover:bg-slate-900/80 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <span className={`absolute -left-[26px] top-4 h-3 w-3 rounded-full border-2 border-slate-950 ${event.incident.severity === 'CRITICAL' ? 'bg-red-500' : event.incident.severity === 'HIGH' ? 'bg-orange-400' : 'bg-blue-400'}`} />
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-white">{event.title}</span>
+                          <time dateTime={event.at.toISOString()} className="font-mono text-[10px] text-slate-400">{event.at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
+                          <span className="font-mono text-blue-300">{event.incident.id}</span>
+                          <span>·</span>
+                          <span className="text-slate-200">{event.incident.category}</span>
+                          <span>·</span>
+                          <span>{event.incident.status}</span>
+                          {event.source === 'audit' && <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-slate-400">Audit</span>}
+                        </div>
+                        <p className="mt-1 truncate text-[11px] text-slate-500">{event.incident.location?.address || event.incident.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : (
+      <>
       {/* Main Triage Incident Table */}
       <div className="glass-panel rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
         <div className="overflow-x-auto">
@@ -168,28 +252,30 @@ export default function IncidentTriageDashboard({
                 </tr>
               ) : (
                 filteredIncidents.map((inc) => (
-                  <tr key={inc.id} className="hover:bg-slate-900/40 transition-colors">
+                  <tr key={inc.id} onClick={() => onOpenIncident?.(inc)} onKeyDown={(event) => { if (event.key === 'Enter') onOpenIncident?.(inc); }} tabIndex={onOpenIncident ? 0 : undefined} className={`hover:bg-slate-900/40 transition-colors ${onOpenIncident ? 'cursor-pointer focus:outline-none focus:bg-slate-900/70' : ''}`}>
                     
                     {/* ID & Category */}
                     <td className="p-4">
                       <div className="font-mono text-[10px] text-slate-400">{inc.id}</div>
-                      <div className="font-bold text-sm text-white">{inc.category}</div>
+                      <button type="button" onClick={(event) => { event.stopPropagation(); onOpenIncident?.(inc); }} className="text-left font-bold text-sm text-white hover:text-blue-300 focus:outline-none focus:underline">{inc.category}</button>
                       <p className="text-[11px] text-slate-400 line-clamp-1 max-w-xs">{inc.description}</p>
+                      {((inc.reviewFlags || []).length > 0 || (inc.missingInformation || []).length > 0) && <span className="mt-1 inline-flex rounded-full border border-orange-500/40 bg-orange-950/40 px-2 py-0.5 text-[9px] font-bold text-orange-200">NEEDS REVIEW · REPORT KEPT</span>}
+                      {inc.triageOverride && <span className="ml-1 mt-1 inline-flex rounded-full border border-blue-500/40 bg-blue-950/40 px-2 py-0.5 text-[9px] font-bold text-blue-200">HUMAN OVERRIDE</span>}
                     </td>
 
                     {/* AI Severity & Confidence */}
                     <td className="p-4">
                       <div className="flex items-center gap-2">
                         <span className={`px-2.5 py-0.5 rounded font-extrabold text-[11px] ${
-                          inc.severity === 'CRITICAL' ? 'badge-critical pulse-critical' :
+                          inc.severity === 'CRITICAL' ? 'badge-critical' :
                           inc.severity === 'HIGH' ? 'badge-high' : 'badge-medium'
                         }`}>
-                          {inc.severity} ({inc.priorityScore}/100)
+                          {inc.priorityBand ? `${inc.priorityBand} · ` : ''}{inc.severity} ({inc.priorityScore}/100)
                         </span>
                       </div>
                       <div className="text-[10px] text-purple-300 mt-1 flex items-center gap-1">
                         <BrainCircuit className="w-3 h-3 text-purple-400" />
-                        AI Confidence: {Math.round(inc.confidence * 100)}%
+                          AI Confidence: {Number.isFinite(inc.confidence) ? `${Math.round(inc.confidence * 100)}%` : 'Not recorded'}
                       </div>
                     </td>
 
@@ -197,7 +283,7 @@ export default function IncidentTriageDashboard({
                     <td className="p-4">
                       <div className="text-white font-medium truncate max-w-[200px]">{inc.location.address}</div>
                       <div className="text-slate-400 text-[10px]">
-                        👥 Affected: <strong className="text-white">{inc.peopleAffected}</strong> | 
+                        👥 Affected: <strong className="text-white">{inc.peopleAffectedKnown === false ? 'Unknown' : inc.peopleAffected}</strong> |
                         Injured: <strong className={inc.injuries ? 'text-red-400' : 'text-slate-400'}>{inc.injuries ? 'YES' : 'NO'}</strong>
                       </div>
                     </td>
@@ -206,10 +292,12 @@ export default function IncidentTriageDashboard({
                     <td className="p-4">
                       <select
                         value={inc.status}
+                        onClick={(event) => event.stopPropagation()}
                         onChange={(e) => onUpdateStatus(inc.id, e.target.value)}
                         className="bg-slate-950 border border-slate-700 text-white font-semibold text-xs rounded-lg px-2.5 py-1.5 focus:border-blue-500 cursor-pointer"
                       >
-                        <option value="REPORTED">REPORTED</option>
+                      <option value="REPORTED">REPORTED</option>
+                        <option value="PENDING_SYNC">PENDING_SYNC</option>
                         <option value="VERIFIED">VERIFIED</option>
                         <option value="ASSIGNED">ASSIGNED</option>
                         <option value="RESPONDING">RESPONDING</option>
@@ -222,7 +310,7 @@ export default function IncidentTriageDashboard({
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
-                          onClick={() => onSelectForDispatch(inc)}
+                          onClick={(event) => { event.stopPropagation(); onSelectForDispatch(inc); }}
                           className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-xs flex items-center gap-1 transition-all shadow cursor-pointer"
                         >
                           <Users className="w-3.5 h-3.5" />
@@ -230,7 +318,7 @@ export default function IncidentTriageDashboard({
                         </button>
 
                         <button
-                          onClick={() => setSelectedIncidentForAudit(inc)}
+                          onClick={(event) => { event.stopPropagation(); setSelectedIncidentForAudit(inc); }}
                           className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs flex items-center gap-1 transition-all cursor-pointer"
                           title="View Audit Timeline"
                         >
@@ -250,10 +338,10 @@ export default function IncidentTriageDashboard({
       {/* Audit Timeline Drawer Modal */}
       {selectedIncidentForAudit && (
         <div className="fixed inset-0 z-50 flex items-center justify-end bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="glass-panel-accent max-w-md w-full h-full p-6 space-y-6 overflow-y-auto border-l border-slate-700 shadow-2xl">
+          <div className="glass-panel-accent max-w-md w-full h-full p-6 space-y-6 overflow-y-auto border-l border-slate-700 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="incident-audit-title">
             <div className="flex justify-between items-center border-b border-slate-800 pb-4">
               <div>
-                <h3 className="font-heading font-extrabold text-base text-white">Incident Audit History</h3>
+                <h3 id="incident-audit-title" className="font-heading font-extrabold text-base text-white">Incident Details & Audit History</h3>
                 <span className="font-mono text-xs text-amber-400">{selectedIncidentForAudit.id}</span>
               </div>
               <button
@@ -264,11 +352,56 @@ export default function IncidentTriageDashboard({
               </button>
             </div>
 
+            <section className="space-y-3">
+              <h4 className="text-xs font-semibold uppercase text-slate-400 tracking-wider">Triage recommendation</h4>
+              <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs text-amber-100">
+                <p className="font-bold">{selectedIncidentForAudit.priorityBand || 'Priority pending'} · {selectedIncidentForAudit.severity || 'Unrated'}</p>
+                <p className="mt-1 leading-5">{selectedIncidentForAudit.explanation || selectedIncidentForAudit.priorityReason || 'No triage rationale was recorded for this report.'}</p>
+                <p className="mt-2 text-[10px] text-amber-100/75">Confidence: {Math.round((selectedIncidentForAudit.aiRecommendation?.confidence ?? selectedIncidentForAudit.confidence ?? 0) * 100)}% · Heuristic, not a calibrated probability.</p>
+                {(selectedIncidentForAudit.priorityReasons || []).length > 0 && <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-amber-100/80">{selectedIncidentForAudit.priorityReasons.map((reason, index) => <li key={`${reason}-${index}`}>{reason}</li>)}</ul>}
+                {(selectedIncidentForAudit.missingInformation || []).map((item) => <p key={item} className="mt-1 text-[11px] text-amber-200">Needs confirmation: {item}</p>)}
+                {(selectedIncidentForAudit.reviewFlags || []).map((item) => <p key={item} className="mt-1 text-[11px] text-orange-200">Human review: {item}</p>)}
+                {selectedIncidentForAudit.triageOverride && <p className="mt-2 border-t border-amber-500/20 pt-2 text-[11px] text-blue-200">Override by {selectedIncidentForAudit.triageOverride.by}: {selectedIncidentForAudit.triageOverride.reason}</p>}
+                {selectedIncidentForAudit.recommendedResources?.length > 0 && <p className="mt-2 text-[11px] text-amber-100/75">Suggested resources: {selectedIncidentForAudit.recommendedResources.join(', ').replaceAll('_', ' ')}</p>}
+                <p className="mt-2 text-[10px] text-amber-100/60">Rule-based decision support only. Management review is required.</p>
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <h4 className="text-xs font-semibold uppercase text-slate-400 tracking-wider">Assignment & lifecycle</h4>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-300">
+                <p>Volunteers: {(selectedIncidentForAudit.assignedVolunteers || []).map((id) => volunteers.find((item) => item.id === id)?.name || id).join(', ') || 'None assigned'}</p>
+                <p className="mt-1">Assets: {(selectedIncidentForAudit.assignedResources || []).map((id) => resources.find((item) => item.id === id)?.name || id).join(', ') || 'None assigned'}</p>
+              </div>
+              <dl className="grid grid-cols-2 gap-2">
+                {[
+                  ['Reported', selectedIncidentForAudit.lifecycle?.reportedAt || selectedIncidentForAudit.reportedAt],
+                  ['Verified', selectedIncidentForAudit.lifecycle?.verifiedAt],
+                  ['Assigned', selectedIncidentForAudit.lifecycle?.assignedAt],
+                  ['Responding', selectedIncidentForAudit.lifecycle?.respondingAt],
+                  ['Resolved', selectedIncidentForAudit.lifecycle?.resolvedAt],
+                ].map(([label, value]) => <div key={label} className="rounded-lg border border-slate-800 bg-slate-950/50 p-2"><dt className="text-[10px] text-slate-500">{label}</dt><dd className="mt-1 text-[11px] text-slate-200">{value ? new Date(value).toLocaleString() : 'Not recorded'}</dd></div>)}
+              </dl>
+            </section>
+
+            {(selectedIncidentForAudit.media || []).length > 0 && (
+              <section className="space-y-3">
+                <h4 className="text-xs font-semibold uppercase text-slate-400 tracking-wider">Evidence</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {selectedIncidentForAudit.media.map((item, index) => item.type === 'AUDIO'
+                    ? <audio key={`${item.name || item.tag}-${index}`} src={item.url} controls className="w-full rounded-lg border border-slate-800" aria-label={item.tag || item.name || 'Incident voice note'} />
+                    : item.type === 'VIDEO'
+                      ? <video key={`${item.name || item.tag}-${index}`} src={item.url} controls className="w-full rounded-lg border border-slate-800" />
+                      : <img key={`${item.name || item.tag}-${index}`} src={item.url} alt={item.tag || item.name || 'Incident evidence'} className="aspect-video w-full rounded-lg border border-slate-800 object-cover" />)}
+                </div>
+              </section>
+            )}
+
             <div className="space-y-4">
               <h4 className="text-xs font-semibold uppercase text-slate-400 tracking-wider">Step-by-step Audit Timeline</h4>
               
               <div className="relative border-l-2 border-slate-700 pl-4 space-y-6">
-                {selectedIncidentForAudit.auditTimeline.map((item, idx) => (
+                {(selectedIncidentForAudit.auditTimeline || []).map((item, idx) => (
                   <div key={idx} className="relative">
                     <div className="absolute -left-[21px] top-0 w-3 h-3 rounded-full bg-blue-500 border-2 border-slate-950" />
                     <div className="text-[11px] font-mono text-amber-400">{item.time}</div>
@@ -280,6 +413,8 @@ export default function IncidentTriageDashboard({
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
 
     </div>

@@ -1,0 +1,32 @@
+/* ResQNet semantic design tokens. Keep product colors role-based, not page-based. */
+:root {
+  --color-navy-950: #0b1220;
+  --color-blue-600: #2563eb;
+  --color-red-600: #dc2626;
+  --color-amber-500: #f59e0b;
+  --color-green-600: #16a34a;
+
+  --color-page: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-focus: #2563eb;
+
+  --color-priority-low: #16a34a;
+  --color-priority-medium: #f59e0b;
+  --color-priority-high: #ea580c;
+  --color-priority-critical: #dc2626;
+
+  --radius-control: 0.75rem;
+  --radius-card: 1rem;
+  --radius-dialog: 1.25rem;
+  --radius-pill: 9999px;
+
+  --shadow-card: 0 1px 3px rgb(15 23 42 / 0.08), 0 8px 24px rgb(15 23 42 / 0.04);
+  --shadow-raised: 0 12px 32px rgb(15 23 42 / 0.12);
+
+  --space-touch-min: 2.75rem;
+  --content-width: 80rem;
+}

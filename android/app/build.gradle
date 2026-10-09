@@ -1,0 +1,32 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.resqnet.mobile'
+    compileSdk 36
+    buildFeatures {
+        buildConfig true
+    }
+
+    defaultConfig {
+        applicationId 'com.resqnet.mobile'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '1.0.0'
+    }
+}
+
+dependencies {
+    implementation 'com.alphacephei:vosk-android:0.3.47'
+}
+
+tasks.register('copyWebAssets', Copy) {
+    from(file("$rootDir/../dist"))
+    into(file("$projectDir/src/main/assets/www"))
+}
+
+tasks.named('preBuild').configure {
+    dependsOn(tasks.named('copyWebAssets'))
+}

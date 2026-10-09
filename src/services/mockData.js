@@ -1,4 +1,4 @@
-// ResQNet Mock Seed Data & Academic Demonstration State — Nagpur, Maharashtra Zone
+// AI-Based Mock Seed Data & Academic Demonstration State — Nagpur, Maharashtra Zone
 
 export const NAGPUR_CENTER = { lat: 21.1458, lng: 79.0882 };
 
@@ -28,7 +28,7 @@ export const INITIAL_INCIDENTS = [
     assignedResources: [],
     auditTimeline: [
       { time: new Date(Date.now() - 15 * 60000).toLocaleTimeString(), event: "Emergency SOS Reported by Citizen", by: "Citizen (Rajesh Deshmukh)" },
-      { time: new Date(Date.now() - 14 * 60000).toLocaleTimeString(), event: "AI Classified as Road Accident (Priority: 95/100)", by: "ResQNet AI Engine" }
+      { time: new Date(Date.now() - 14 * 60000).toLocaleTimeString(), event: "AI Classified as Road Accident (Priority: 95/100)", by: "AI-Based decision support" }
     ],
     media: [
       { type: "IMAGE", url: "https://images.unsplash.com/photo-1563861826100-9cb868fdbe1c?w=500&auto=format&fit=crop", tag: "Wardha Road Collision" }
@@ -59,7 +59,7 @@ export const INITIAL_INCIDENTS = [
     assignedResources: [],
     auditTimeline: [
       { time: new Date(Date.now() - 42 * 60000).toLocaleTimeString(), event: "Reported via Citizen App", by: "Citizen (Sunil Gawande)" },
-      { time: new Date(Date.now() - 40 * 60000).toLocaleTimeString(), event: "AI Scored Priority: 92/100 (CRITICAL)", by: "ResQNet AI Engine" },
+      { time: new Date(Date.now() - 40 * 60000).toLocaleTimeString(), event: "AI Scored Priority: 92/100 (CRITICAL)", by: "AI-Based decision support" },
       { time: new Date(Date.now() - 35 * 60000).toLocaleTimeString(), event: "Incident Verified by Nagpur Fire HQ", by: "Station Officer Kulkarni" }
     ],
     media: [
@@ -188,6 +188,7 @@ export const INITIAL_VOLUNTEERS = [
     name: "Subhash Wankhede",
     volunteerType: "RESCUE_SQUAD",
     phone: "+91 98230 11223",
+    verified: true,
     status: "ACTIVE",
     rating: 4.9,
     missionsCount: 38,
@@ -204,6 +205,7 @@ export const INITIAL_VOLUNTEERS = [
     name: "Dr. Anagha Joshi",
     volunteerType: "MEDICAL_RESPONDER",
     phone: "+91 94221 88344",
+    verified: true,
     status: "ACTIVE",
     rating: 5.0,
     missionsCount: 64,
@@ -220,6 +222,7 @@ export const INITIAL_VOLUNTEERS = [
     name: "Pravin Mendhe",
     volunteerType: "RESCUE_SQUAD",
     phone: "+91 98902 44556",
+    verified: true,
     status: "DISPATCHED",
     rating: 4.8,
     missionsCount: 22,
@@ -236,6 +239,7 @@ export const INITIAL_VOLUNTEERS = [
     name: "Sneha Thakare",
     volunteerType: "RESCUE_SQUAD",
     phone: "+91 97640 12399",
+    verified: true,
     status: "ACTIVE",
     rating: 4.7,
     missionsCount: 15,
@@ -252,6 +256,7 @@ export const INITIAL_VOLUNTEERS = [
     name: "Amitabh Choudhury",
     volunteerType: "MEDIC_RESOURCE_VEHICLE",
     phone: "+91 98224 99001",
+    verified: true,
     status: "ACTIVE",
     rating: 4.95,
     missionsCount: 45,
@@ -325,7 +330,7 @@ export const INITIAL_RESOURCES = [
 ];
 
 export const AI_ACADEMIC_METRICS = {
-  modelName: "ResQNet Hybrid NLP Classifier (TF-IDF + Random Forest)",
+  modelName: "AI-Based Hybrid NLP Classifier (TF-IDF + Random Forest)",
   datasetSize: 12500, // labeled emergency reports
   trainingSplit: "80% Train / 20% Test",
   accuracy: 94.2,

@@ -5,20 +5,19 @@ import {
   Truck, 
   MapPin, 
   Navigation, 
-  Award, 
-  CheckCircle2, 
   Send,
-  Zap
+  Zap,
+  SlidersHorizontal,
 } from 'lucide-react';
-import { VOLUNTEER_TYPES } from '../services/demoAuth';
-import { matchVolunteersForIncident, matchResourcesForIncident } from '../services/geoMatcher';
+import { VOLUNTEER_TYPES } from '../services/roleConfig';
+import { DEFAULT_VOLUNTEER_MATCH_WEIGHTS, isVolunteerAvailable, isVolunteerVerified, matchVolunteersForIncident, matchResourcesForIncident } from '../services/geoMatcher';
 
 export default function VolunteerMatcherModal({ incident, volunteers, resources, onAssignDispatch, onClose }) {
   const [selectedVolunteerId, setSelectedVolunteerId] = useState(null);
   const [selectedResourceId, setSelectedResourceId] = useState(null);
+  const [weights, setWeights] = useState({ ...DEFAULT_VOLUNTEER_MATCH_WEIGHTS });
 
-  // Compute geospatial matches
-  const rankedVolunteers = matchVolunteersForIncident(incident, volunteers);
+  const rankedVolunteers = matchVolunteersForIncident(incident, volunteers, weights);
   const rankedResources = matchResourcesForIncident(incident, resources);
 
   const handleConfirmDispatch = () => {
@@ -27,8 +26,20 @@ export default function VolunteerMatcherModal({ incident, volunteers, resources,
       return;
     }
 
-    const assignedVol = volunteers.find(v => v.id === selectedVolunteerId);
+    const assignedVol = rankedVolunteers.find(({ volunteer }) => volunteer.id === selectedVolunteerId)?.volunteer;
     const assignedRes = resources.find(r => r.id === selectedResourceId);
+    if ((selectedVolunteerId && !assignedVol) || (selectedResourceId && !assignedRes)) {
+      alert('The selected responder or resource is no longer in the current roster. Refresh the recommendations.');
+      return;
+    }
+    if (assignedVol && (!isVolunteerVerified(assignedVol) || !isVolunteerAvailable(assignedVol))) {
+      alert('Select a verified responder who is currently available.');
+      return;
+    }
+    if (assignedRes && assignedRes.status !== 'AVAILABLE') {
+      alert('Select a resource that is currently available.');
+      return;
+    }
 
     onAssignDispatch({
       incidentId: incident.id,
@@ -50,7 +61,7 @@ export default function VolunteerMatcherModal({ incident, volunteers, resources,
               <Navigation className="w-5 h-5 text-blue-400" />
             </div>
             <div>
-              <h3 className="font-heading font-extrabold text-base text-white">Proximity Volunteer & Resource Matcher</h3>
+              <h3 className="font-heading font-extrabold text-base text-white">Responder & Resource Recommendations</h3>
               <p className="text-xs text-slate-400 font-mono">Incident ID: {incident.id} ({incident.category})</p>
             </div>
           </div>
@@ -73,31 +84,40 @@ export default function VolunteerMatcherModal({ incident, volunteers, resources,
             </div>
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-1 rounded bg-red-950 text-red-300 border border-red-800 font-extrabold text-xs">
-                {incident.severity} ({incident.priorityScore}/100)
+                {incident.priorityBand ? `${incident.priorityBand} · ` : ''}{incident.severity} ({incident.priorityScore}/100)
               </span>
             </div>
           </div>
+
+          <section className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+            <h4 className="flex items-center gap-2 text-sm font-bold text-white"><SlidersHorizontal className="h-4 w-4 text-sky-300" />Recommendation weights</h4>
+            <p className="mt-1 text-[11px] text-slate-400">Adjust distance, relevant skills, and availability. Values are normalized to score each candidate; the dispatcher still chooses the final assignment.</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">{[
+              ['distance', 'Distance'], ['skills', 'Relevant skills'], ['availability', 'Availability'],
+            ].map(([key, label]) => <label key={key} className="text-[11px] font-semibold text-slate-300">{label} <span className="float-right text-sky-200">{weights[key]}%</span><input aria-label={`${label} matching weight`} type="range" min="0" max="100" value={weights[key]} onChange={(event) => setWeights((current) => ({ ...current, [key]: Number(event.target.value) }))} className="mt-1 w-full accent-sky-500" /></label>)}</div>
+          </section>
 
           {/* SECTION 1: RANKED VOLUNTEERS */}
           <div className="space-y-3">
             <h4 className="font-heading font-bold text-sm text-white flex items-center gap-2">
               <Users className="w-4 h-4 text-blue-400" />
-              1. Recommended Nearby Volunteers (Ranked by Haversine Distance & Skill Match)
+              1. Approved responders ranked by fit
             </h4>
+            <p className="text-[11px] text-slate-400">Only Management-approved responder accounts appear. Available responders rank first; unavailable responders are shown for context and cannot be selected. Listed skills guide the match; verify qualifications and dispatch eligibility before assignment.</p>
 
             <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
               {rankedVolunteers.length === 0 ? (
                 <div className="text-xs text-slate-500 text-center py-4">
-                  No available volunteers found within response radius.
+                  No Management-approved responders with a shared location were found within their service radius.
                 </div>
               ) : (
-                rankedVolunteers.map(({ volunteer, distanceKm, etaMinutes, skillMatchScore, matchedSkills, compositeScore }) => {
+                rankedVolunteers.map(({ volunteer, distanceKm, etaMinutes, skillMatchScore, matchedSkills, requiredSkills, compositeScore, scoreBreakdown, available }) => {
                   const isSelected = selectedVolunteerId === volunteer.id;
                   return (
                     <div
                       key={volunteer.id}
-                      onClick={() => setSelectedVolunteerId(volunteer.id)}
-                      className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      onClick={() => available && setSelectedVolunteerId(volunteer.id)}
+                      className={`p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${!available ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${
                         isSelected
                           ? 'bg-blue-950/80 border-blue-500 shadow-md shadow-blue-900/30'
                           : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
@@ -106,14 +126,16 @@ export default function VolunteerMatcherModal({ incident, volunteers, resources,
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-sm text-white">{volunteer.name}</span>
-                          <span className="text-[10px] font-mono bg-blue-950 px-2 py-0.5 rounded text-blue-300 border border-blue-800">
-                            ★ {volunteer.rating} / 5.0
+                          <span className="text-[10px] font-bold bg-emerald-950 px-2 py-0.5 rounded text-emerald-200 border border-emerald-800">
+                            <ShieldCheck className="mr-1 inline h-3 w-3" />Management approved
                           </span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${available ? 'bg-emerald-950 text-emerald-200 border-emerald-800' : 'bg-slate-900 text-slate-400 border-slate-700'}`}>{available ? 'Available' : volunteer.availability || volunteer.status || 'Unavailable'}</span>
                         </div>
                         <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
-                          <span>Skills: <strong className="text-slate-200">{volunteer.skills.join(', ')}</strong></span>
-                          <span>Vehicle: <strong className="text-slate-200">{volunteer.vehicle}</strong></span>
-                          {volunteer.volunteerType && <span className="text-cyan-300">Unit: <strong>{VOLUNTEER_TYPES[volunteer.volunteerType]?.shortLabel}</strong></span>}
+                          <span>Skills: <strong className="text-slate-200">{Array.isArray(volunteer.skills) && volunteer.skills.length ? volunteer.skills.join(', ') : 'Not listed'}</strong></span>
+                          {volunteer.vehicle && <span>Vehicle: <strong className="text-slate-200">{volunteer.vehicle}</strong></span>}
+                          {volunteer.volunteerType && <span className="text-cyan-300">Unit: <strong>{VOLUNTEER_TYPES[volunteer.volunteerType]?.shortLabel || 'Volunteer'}</strong></span>}
+                          <span className="basis-full">Relevant skills: <strong className={matchedSkills.length ? 'text-emerald-200' : 'text-amber-200'}>{matchedSkills.length ? matchedSkills.join(', ') : `No match from ${requiredSkills.join(', ')}`}</strong></span>
                         </div>
                       </div>
 
@@ -124,14 +146,16 @@ export default function VolunteerMatcherModal({ incident, volunteers, resources,
                         </div>
 
                         <div className="px-3 py-1 bg-slate-950 rounded border border-slate-700 text-center">
-                          <div className="text-[10px] text-slate-400 font-mono">Match Score</div>
+                          <div className="text-[10px] text-slate-400 font-mono">Fit Score</div>
                           <div className="text-xs font-black text-amber-400">{compositeScore}%</div>
+                          <div className="mt-1 text-[9px] text-slate-500">D {scoreBreakdown.distance} · S {scoreBreakdown.skills} · A {scoreBreakdown.availability}</div>
                         </div>
 
                         <input
                           type="radio"
                           name="volunteer"
                           checked={isSelected}
+                          disabled={!available}
                           onChange={() => setSelectedVolunteerId(volunteer.id)}
                           className="accent-blue-500 w-4 h-4 cursor-pointer"
                         />

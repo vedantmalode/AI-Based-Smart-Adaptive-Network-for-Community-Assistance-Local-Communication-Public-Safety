@@ -37,21 +37,25 @@ export default function AIMetricsDashboard() {
       <div className="glass-panel p-6 rounded-2xl border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
         <div>
           <span className="px-3 py-1 bg-purple-950 text-purple-300 border border-purple-800 text-[10px] font-mono font-bold rounded-full uppercase tracking-wider">
-            Academic Final-Year Defense Suite
+            Prototype · Academic Review
           </span>
           <h2 className="text-2xl font-heading font-extrabold text-white mt-1 flex items-center gap-2">
             <BrainCircuit className="w-6 h-6 text-purple-400" />
-            AI Emergency Prioritization Model & Analytics
+            Emergency Prioritization & Model Review
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Trained TF-IDF + Logistic Regression / Random Forest Hybrid NLP Classifier.
+            Current report scoring uses a transparent keyword heuristic in the browser.
           </p>
         </div>
 
         <div className="flex items-center gap-2 bg-purple-950/80 px-4 py-2 rounded-xl border border-purple-800/60 text-xs font-mono text-purple-300">
-          <Activity className="w-4 h-4 text-purple-400 animate-pulse" />
-          <span>Model Status: ACTIVE (Joblib Pipeline Loaded)</span>
+          <Activity className="w-4 h-4 text-purple-400" />
+          <span>Scorer status: Heuristic prototype</span>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-amber-700/60 bg-amber-950/40 p-4 text-xs leading-5 text-amber-100" role="note">
+        The academic accuracy, precision, recall, F1, confusion matrix, and feature weights below are illustrative placeholders from the demo dataset. They are not measured results from the current keyword scorer and should not be used for operational decisions.
       </div>
 
       {/* ACADEMIC METRICS CARDS */}
@@ -147,10 +151,10 @@ export default function AIMetricsDashboard() {
         <div className="flex justify-between items-center border-b border-slate-800 pb-3">
           <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
             <Terminal className="w-5 h-5 text-emerald-400" />
-            Live AI Inference API Simulator (`POST /api/ai/classify`)
+            Try the prototype priority scorer
           </h3>
           <span className="font-mono text-[10px] text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800">
-            Real-time Scikit-learn Classifier
+            Browser keyword heuristic · no trained model loaded
           </span>
         </div>
 
