@@ -1,6 +1,7 @@
 import { authHeaders } from './localAuth';
+import { apiUrl } from './apiUrl';
 
-const INCIDENTS_URL = '/api/incidents';
+const INCIDENTS_URL = apiUrl('/api/incidents');
 
 function getNativeBridge() {
   return typeof window !== 'undefined' ? window.ResQNetNative : null;
@@ -36,7 +37,7 @@ export async function fetchServerIncidents() {
 }
 
 export async function fetchMyServerIncidents() {
-  const response = await fetch('/api/my-incidents', { headers: { ...authHeaders(), accept: 'application/json' } });
+  const response = await fetch(apiUrl('/api/my-incidents'), { headers: { ...authHeaders(), accept: 'application/json' } });
   return readJsonResponse(response);
 }
 
@@ -84,11 +85,29 @@ export async function acceptIncidentAssignment(incidentId, resourceId, volunteer
 }
 
 export function subscribeToIncidentUpdates(onIncident) {
-  if (typeof window === 'undefined' || typeof window.EventSource !== 'function') return () => {};
-  const source = new EventSource('/api/events');
-  source.addEventListener('incident', (event) => {
-    try { onIncident(JSON.parse(event.data)); }
-    catch (error) { console.warn('Ignoring an invalid incident update from the API:', error); }
-  });
-  return () => source.close();
+  if (typeof window === 'undefined' || !authHeaders().authorization) return () => {};
+  let stopped = false;
+  let firstSnapshot = true;
+  const knownUpdates = new Map();
+  const refresh = async () => {
+    if (stopped) return;
+    try {
+      const response = await fetch(apiUrl('/api/sync-incidents'), { headers: { ...authHeaders(), accept: 'application/json' } });
+      if (response.status === 401 || response.status === 403) return;
+      const incidents = await readJsonResponse(response);
+      if (!Array.isArray(incidents)) return;
+      incidents.forEach((incident) => {
+        const key = incident.clientUuid || incident.id;
+        const revision = incident.updatedAt || incident.reportedAt || '';
+        if (!firstSnapshot && knownUpdates.get(key) !== revision) onIncident(incident);
+        knownUpdates.set(key, revision);
+      });
+      firstSnapshot = false;
+    } catch (error) {
+      console.warn('Could not refresh incident updates:', error);
+    }
+  };
+  refresh();
+  const timer = window.setInterval(refresh, 10000);
+  return () => { stopped = true; window.clearInterval(timer); };
 }

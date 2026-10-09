@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: resqnet-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm run api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: AUTH_SESSION_SECRET
+        sync: false
+      - key: MANAGEMENT_LOGIN_ID
+        sync: false
+      - key: MANAGEMENT_PASSWORD
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false

@@ -1,7 +1,8 @@
 import { db } from './offlineStore';
 import { authHeaders } from './localAuth';
+import { apiUrl } from './apiUrl';
 
-const MESSAGES_URL = '/api/messages';
+const MESSAGES_URL = apiUrl('/api/messages');
 
 function fromRow(row) {
   return {

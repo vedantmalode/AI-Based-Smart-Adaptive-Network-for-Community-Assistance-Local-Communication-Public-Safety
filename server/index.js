@@ -4,16 +4,23 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const PORT = Number(process.env.API_PORT || 3001);
+const PORT = Number(process.env.PORT || process.env.API_PORT || 3001);
+const HOST = process.env.HOST || '0.0.0.0';
 const DATA_FILE = join(dirname(fileURLToPath(import.meta.url)), 'data', 'incidents.json');
 const MESSAGES_FILE = join(dirname(fileURLToPath(import.meta.url)), 'data', 'community-messages.json');
 const UNITS_FILE = join(dirname(fileURLToPath(import.meta.url)), 'data', 'operational-units.json');
 const PROFILES_FILE = join(dirname(fileURLToPath(import.meta.url)), 'data', 'profiles.json');
 const ACCOUNTS_FILE = join(dirname(fileURLToPath(import.meta.url)), 'data', 'accounts.json');
 const AUTH_SECRET_FILE = join(dirname(fileURLToPath(import.meta.url)), 'data', 'local-auth-secret.txt');
+const STORE_FILES = new Map([
+  [DATA_FILE, 'incidents'],
+  [MESSAGES_FILE, 'community_messages'],
+  [UNITS_FILE, 'operational_units'],
+  [PROFILES_FILE, 'profiles'],
+  [ACCOUNTS_FILE, 'accounts'],
+]);
 let storeQueue = Promise.resolve();
 let authSecretPromise;
-const eventClients = new Set();
 const STATUS_TIMESTAMPS = {
   VERIFIED: 'verifiedAt',
   ASSIGNED: 'assignedAt',
@@ -35,8 +42,21 @@ async function loadLocalEnvironment() {
 }
 
 await loadLocalEnvironment();
+if (Boolean(process.env.SUPABASE_URL) !== Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY)) {
+  throw new Error('Set both SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to use the hosted database.');
+}
+if (process.env.NODE_ENV === 'production' && !isDatabaseConfigured()) {
+  throw new Error('Production requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY so application data is persistent.');
+}
+if (process.env.NODE_ENV === 'production' && !process.env.AUTH_SESSION_SECRET) {
+  throw new Error('Production requires a stable AUTH_SESSION_SECRET of at least 32 characters.');
+}
+if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_ORIGIN) {
+  throw new Error('Production requires FRONTEND_ORIGIN so the API only accepts requests from the deployed frontend.');
+}
 
 async function getAuthSecret() {
+  if (process.env.AUTH_SESSION_SECRET) return process.env.AUTH_SESSION_SECRET;
   if (!authSecretPromise) authSecretPromise = (async () => {
     try { return await readFile(AUTH_SECRET_FILE, 'utf8'); }
     catch (error) {
@@ -85,6 +105,17 @@ async function getSession(request) {
 }
 
 async function readJsonFile(path, fallback = []) {
+  if (isDatabaseConfigured()) {
+    const key = STORE_FILES.get(path);
+    if (!key) throw new Error(`No persistent store key is configured for ${path}.`);
+    const response = await fetch(`${process.env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/resqnet_app_state?store_key=eq.${encodeURIComponent(key)}&select=data`, {
+      headers: supabaseHeaders(),
+    });
+    if (!response.ok) throw new Error(`Could not read ${key} from Supabase (${response.status}).`);
+    const rows = await response.json();
+    const value = rows[0]?.data;
+    return Array.isArray(value) ? value : fallback;
+  }
   try {
     const value = JSON.parse(await readFile(path, 'utf8'));
     return Array.isArray(value) ? value : fallback;
@@ -92,6 +123,34 @@ async function readJsonFile(path, fallback = []) {
     if (error.code === 'ENOENT') return fallback;
     throw error;
   }
+}
+
+function isDatabaseConfigured() {
+  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function supabaseHeaders() {
+  return {
+    apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+    accept: 'application/json',
+  };
+}
+
+async function writeJsonFile(path, value) {
+  if (isDatabaseConfigured()) {
+    const key = STORE_FILES.get(path);
+    if (!key) throw new Error(`No persistent store key is configured for ${path}.`);
+    const response = await fetch(`${process.env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/resqnet_app_state?on_conflict=store_key`, {
+      method: 'POST',
+      headers: { ...supabaseHeaders(), 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ store_key: key, data: value }),
+    });
+    if (!response.ok) throw new Error(`Could not write ${key} to Supabase (${response.status}).`);
+    return;
+  }
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
 async function normalizeLegacyAccountRoles() {
@@ -106,7 +165,7 @@ async function normalizeLegacyAccountRoles() {
       accountsChanged = true;
     }
   }
-  if (accountsChanged) await writeFile(ACCOUNTS_FILE, `${JSON.stringify(accounts, null, 2)}\n`, 'utf8');
+  if (accountsChanged) await writeJsonFile(ACCOUNTS_FILE, accounts);
 
   const profiles = await readJsonFile(PROFILES_FILE);
   let profilesChanged = false;
@@ -119,46 +178,30 @@ async function normalizeLegacyAccountRoles() {
       profilesChanged = true;
     }
   }
-  if (profilesChanged) await writeFile(PROFILES_FILE, `${JSON.stringify(profiles, null, 2)}\n`, 'utf8');
+  if (profilesChanged) await writeJsonFile(PROFILES_FILE, profiles);
 }
 
 await normalizeLegacyAccountRoles();
 
-function publishIncident(incident) {
-  const message = `event: incident\ndata: ${JSON.stringify(incident)}\n\n`;
-  for (const client of eventClients) client.write(message);
-}
-
 async function readIncidents() {
-  try {
-    const contents = await readFile(DATA_FILE, 'utf8');
-    const incidents = JSON.parse(contents);
-    return Array.isArray(incidents) ? incidents : [];
-  } catch (error) {
-    if (error.code === 'ENOENT') return [];
-    throw error;
-  }
+  return readJsonFile(DATA_FILE);
 }
 
 async function readCommunityMessages() {
-  try {
-    const contents = await readFile(MESSAGES_FILE, 'utf8');
-    const messages = JSON.parse(contents);
-    return Array.isArray(messages) ? messages : [];
-  } catch (error) {
-    if (error.code === 'ENOENT') return [];
-    throw error;
-  }
+  return readJsonFile(MESSAGES_FILE);
 }
 
 function updateIncidentStore(update) {
   const operation = storeQueue.then(async () => {
     const incidents = await readIncidents();
     const result = await update(incidents);
-    await mkdir(dirname(DATA_FILE), { recursive: true });
-    const temporaryFile = `${DATA_FILE}.tmp`;
-    await writeFile(temporaryFile, `${JSON.stringify(incidents, null, 2)}\n`, 'utf8');
-    await rename(temporaryFile, DATA_FILE);
+    if (isDatabaseConfigured()) await writeJsonFile(DATA_FILE, incidents);
+    else {
+      await mkdir(dirname(DATA_FILE), { recursive: true });
+      const temporaryFile = `${DATA_FILE}.tmp`;
+      await writeFile(temporaryFile, `${JSON.stringify(incidents, null, 2)}\n`, 'utf8');
+      await rename(temporaryFile, DATA_FILE);
+    }
     return result;
   });
   storeQueue = operation.catch(() => {});
@@ -169,10 +212,13 @@ function updateCommunityMessages(update) {
   const operation = storeQueue.then(async () => {
     const messages = await readCommunityMessages();
     const result = await update(messages);
-    await mkdir(dirname(MESSAGES_FILE), { recursive: true });
-    const temporaryFile = `${MESSAGES_FILE}.tmp`;
-    await writeFile(temporaryFile, `${JSON.stringify(messages, null, 2)}\n`, 'utf8');
-    await rename(temporaryFile, MESSAGES_FILE);
+    if (isDatabaseConfigured()) await writeJsonFile(MESSAGES_FILE, messages);
+    else {
+      await mkdir(dirname(MESSAGES_FILE), { recursive: true });
+      const temporaryFile = `${MESSAGES_FILE}.tmp`;
+      await writeFile(temporaryFile, `${JSON.stringify(messages, null, 2)}\n`, 'utf8');
+      await rename(temporaryFile, MESSAGES_FILE);
+    }
     return result;
   });
   storeQueue = operation.catch(() => {});
@@ -205,7 +251,25 @@ function sendJson(response, statusCode, value) {
   response.end(JSON.stringify(value));
 }
 
+function applyCors(request, response) {
+  const origin = request.headers.origin;
+  const allowedOrigins = (process.env.FRONTEND_ORIGIN || '').split(',').map((item) => item.trim()).filter(Boolean);
+  if (origin && (!allowedOrigins.length || allowedOrigins.includes(origin))) {
+    response.setHeader('access-control-allow-origin', origin);
+    response.setHeader('vary', 'Origin');
+  }
+  response.setHeader('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  response.setHeader('access-control-allow-headers', 'Authorization, Content-Type, Accept');
+  response.setHeader('access-control-max-age', '86400');
+}
+
 const server = createServer(async (request, response) => {
+  applyCors(request, response);
+  if (request.method === 'OPTIONS') {
+    response.writeHead(204);
+    response.end();
+    return;
+  }
   const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
   try {
     if (request.method === 'GET' && url.pathname === '/api/health') {
@@ -259,8 +323,7 @@ const server = createServer(async (request, response) => {
       const accountRole = role === 'VOLUNTEER' ? 'CITIZEN' : role;
       const user = { id: email, email, name, role: accountRole, ...(requestedRole ? { requestedRole, volunteerType } : {}) };
       accounts.push({ ...user, passwordSalt, passwordHash });
-      await mkdir(dirname(ACCOUNTS_FILE), { recursive: true });
-      await writeFile(ACCOUNTS_FILE, `${JSON.stringify(accounts, null, 2)}\n`, 'utf8');
+      await writeJsonFile(ACCOUNTS_FILE, accounts);
 
       const profiles = await readJsonFile(PROFILES_FILE, [{ id: process.env.MANAGEMENT_LOGIN_ID || 'management@resqnet.invalid', display_name: 'Management room', role: 'MANAGEMENT', requested_role: null }]);
       profiles.push({
@@ -271,7 +334,7 @@ const server = createServer(async (request, response) => {
         request_status: requestedRole ? 'PENDING' : null,
         ...(volunteerType ? { volunteer_type: volunteerType } : {}),
       });
-      await writeFile(PROFILES_FILE, `${JSON.stringify(profiles, null, 2)}\n`, 'utf8');
+      await writeJsonFile(PROFILES_FILE, profiles);
 
       sendJson(response, 201, { token: await signSession(user), user });
       return;
@@ -301,6 +364,15 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, incidents.filter((incident) => incident.reporterId === user.id));
       return;
     }
+    if (request.method === 'GET' && url.pathname === '/api/sync-incidents') {
+      const user = await getSession(request);
+      if (!user) { sendJson(response, 401, { error: 'Sign in to synchronize incident updates.' }); return; }
+      const incidents = await readIncidents();
+      if (user.role === 'CITIZEN') sendJson(response, 200, incidents.filter((incident) => incident.reporterId === user.id));
+      else if (['VOLUNTEER', 'MANAGEMENT'].includes(user.role)) sendJson(response, 200, incidents);
+      else sendJson(response, 403, { error: 'Your account cannot view incident updates.' });
+      return;
+    }
     if (url.pathname.startsWith('/api/operational-units') || url.pathname.startsWith('/api/profiles')) {
       const user = await getSession(request);
       if (!user) { sendJson(response, 401, { error: 'Sign in to access this information.' }); return; }
@@ -322,8 +394,7 @@ const server = createServer(async (request, response) => {
           if (canUpdateSelf) updated.verified = true;
           units[index] = updated;
         } else units.unshift({ ...unit, ...(canUpdateSelf ? { verified: true } : {}), updatedAt: new Date().toISOString() });
-        await mkdir(dirname(UNITS_FILE), { recursive: true });
-        await writeFile(UNITS_FILE, `${JSON.stringify(units, null, 2)}\n`, 'utf8');
+        await writeJsonFile(UNITS_FILE, units);
         sendJson(response, 200, units[index >= 0 ? index : 0]);
         return;
       }
@@ -376,8 +447,7 @@ const server = createServer(async (request, response) => {
             verified: true, status: 'OFFLINE', availability: 'Signed out', skills: skillsByType[volunteerType],
             maxRadiusKm: 15, rating: 0, missionsCount: 0, location: null,
           });
-          await mkdir(dirname(UNITS_FILE), { recursive: true });
-          await writeFile(UNITS_FILE, `${JSON.stringify(units, null, 2)}\n`, 'utf8');
+          await writeJsonFile(UNITS_FILE, units);
         } else {
           account.role = 'CITIZEN';
           delete account.requestedRole;
@@ -385,8 +455,8 @@ const server = createServer(async (request, response) => {
           profile.requested_role = null;
           profile.request_status = 'REJECTED';
         }
-        await writeFile(ACCOUNTS_FILE, `${JSON.stringify(accounts, null, 2)}\n`, 'utf8');
-        await writeFile(PROFILES_FILE, `${JSON.stringify(profiles, null, 2)}\n`, 'utf8');
+        await writeJsonFile(ACCOUNTS_FILE, accounts);
+        await writeJsonFile(PROFILES_FILE, profiles);
         sendJson(response, 200, profile);
         return;
       }
@@ -404,11 +474,11 @@ const server = createServer(async (request, response) => {
         if (!profile && !account) { sendJson(response, 404, { error: 'Account not found.' }); return; }
 
         const volunteerId = account?.volunteerId || profile?.volunteer_id;
-        await writeFile(PROFILES_FILE, `${JSON.stringify(profiles.filter((item) => item.id !== profileId), null, 2)}\n`, 'utf8');
-        await writeFile(ACCOUNTS_FILE, `${JSON.stringify(accounts.filter((item) => item.id !== profileId && item.email !== profileId), null, 2)}\n`, 'utf8');
+        await writeJsonFile(PROFILES_FILE, profiles.filter((item) => item.id !== profileId));
+        await writeJsonFile(ACCOUNTS_FILE, accounts.filter((item) => item.id !== profileId && item.email !== profileId));
         if (volunteerId) {
           const units = await readJsonFile(UNITS_FILE);
-          await writeFile(UNITS_FILE, `${JSON.stringify(units.filter((item) => item.id !== volunteerId), null, 2)}\n`, 'utf8');
+          await writeJsonFile(UNITS_FILE, units.filter((item) => item.id !== volunteerId));
         }
         sendJson(response, 200, { deleted: true, id: profileId });
         return;
@@ -438,17 +508,16 @@ const server = createServer(async (request, response) => {
             delete account.volunteerType;
             if (volunteerId) {
               const units = await readJsonFile(UNITS_FILE);
-              await writeFile(UNITS_FILE, `${JSON.stringify(units.filter((item) => item.id !== volunteerId), null, 2)}\n`, 'utf8');
+              await writeJsonFile(UNITS_FILE, units.filter((item) => item.id !== volunteerId));
             }
           }
-          await writeFile(ACCOUNTS_FILE, `${JSON.stringify(accounts, null, 2)}\n`, 'utf8');
+          await writeJsonFile(ACCOUNTS_FILE, accounts);
         }
         profile.role = role;
         profile.requested_role = null;
         profile.request_status = null;
         if (role !== 'VOLUNTEER') delete profile.volunteer_id;
-        await mkdir(dirname(PROFILES_FILE), { recursive: true });
-        await writeFile(PROFILES_FILE, `${JSON.stringify(profiles, null, 2)}\n`, 'utf8');
+        await writeJsonFile(PROFILES_FILE, profiles);
         sendJson(response, 200, profile);
         return;
       }
@@ -494,21 +563,6 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, savedMessage);
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/events') {
-      response.writeHead(200, {
-        'content-type': 'text/event-stream; charset=utf-8',
-        'cache-control': 'no-cache, no-transform',
-        connection: 'keep-alive',
-      });
-      response.write('retry: 3000\n\n');
-      eventClients.add(response);
-      const heartbeat = setInterval(() => response.write(': keep-alive\n\n'), 25000);
-      request.on('close', () => {
-        clearInterval(heartbeat);
-        eventClients.delete(response);
-      });
-      return;
-    }
     if (request.method === 'POST' && url.pathname === '/api/incidents') {
       const submitted = await readRequestBody(request);
       if (!submitted || typeof submitted !== 'object' || Array.isArray(submitted)
@@ -543,7 +597,6 @@ const server = createServer(async (request, response) => {
       });
       const incidents = await readIncidents();
       const savedIncident = incidents.find((item) => item.clientUuid === submitted.clientUuid || item.id === submitted.id);
-      publishIncident(savedIncident);
       sendJson(response, saved, savedIncident);
       return;
     }
@@ -659,7 +712,6 @@ const server = createServer(async (request, response) => {
         sendJson(response, assignmentError ? 409 : 404, { error: assignmentError || 'Incident was not found.' });
         return;
       }
-      publishIncident(updatedIncident);
       sendJson(response, 200, updatedIncident);
       return;
     }
@@ -670,7 +722,7 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`ResQNet incident API listening at http://127.0.0.1:${PORT}`);
-  console.log(`Incident data is stored in ${DATA_FILE}`);
+server.listen(PORT, HOST, () => {
+  console.log(`ResQNet incident API listening on ${HOST}:${PORT}`);
+  console.log(isDatabaseConfigured() ? 'Application data is stored in Supabase Postgres.' : `Incident data is stored in ${DATA_FILE}`);
 });

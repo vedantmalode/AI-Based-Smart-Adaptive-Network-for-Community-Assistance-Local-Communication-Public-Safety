@@ -1,4 +1,5 @@
 import { authHeaders } from './localAuth';
+import { apiUrl } from './apiUrl';
 
 async function readJson(response) {
   const payload = await response.json().catch(() => ({}));
@@ -7,7 +8,7 @@ async function readJson(response) {
 }
 
 async function request(path, options = {}) {
-  return readJson(await fetch(path, {
+  return readJson(await fetch(apiUrl(path), {
     ...options,
     headers: { accept: 'application/json', ...authHeaders(), ...(options.headers || {}) },
   }));

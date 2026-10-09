@@ -140,18 +140,21 @@ export default function App() {
   }, []);
 
   // Listen for incident changes made by other connected clients.
-  useEffect(() => subscribeToIncidentUpdates((incoming) => {
-    setLastSyncedAt(new Date().toISOString());
-    const saved = restoreIncidentMedia({ ...incoming, isLocalReport: true });
-    setIncidents((current) => {
-      const index = current.findIndex((incident) => incident.clientUuid === saved.clientUuid || incident.id === saved.id);
-      if (index < 0) return [saved, ...current];
-      return current.map((incident, currentIndex) => currentIndex === index ? { ...incident, ...saved } : incident);
+  useEffect(() => {
+    if (!userSession?.id) return undefined;
+    return subscribeToIncidentUpdates((incoming) => {
+      setLastSyncedAt(new Date().toISOString());
+      const saved = restoreIncidentMedia({ ...incoming, isLocalReport: true });
+      setIncidents((current) => {
+        const index = current.findIndex((incident) => incident.clientUuid === saved.clientUuid || incident.id === saved.id);
+        if (index < 0) return [saved, ...current];
+        return current.map((incident, currentIndex) => currentIndex === index ? { ...incident, ...saved } : incident);
+      });
+      setMyReports((current) => current.map((incident) => incident.clientUuid === saved.clientUuid || incident.id === saved.id
+        ? { ...incident, ...saved }
+        : incident));
     });
-    setMyReports((current) => current.map((incident) => incident.clientUuid === saved.clientUuid || incident.id === saved.id
-      ? { ...incident, ...saved }
-      : incident));
-  }), []);
+  }, [userSession?.id]);
 
   // Load the current account's shared and offline incident records.
   useEffect(() => {

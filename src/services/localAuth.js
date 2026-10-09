@@ -1,3 +1,5 @@
+import { apiUrl } from './apiUrl';
+
 const TOKEN_KEY = 'resqnet-management-token';
 let rememberSession = true;
 
@@ -29,7 +31,7 @@ export function setRememberMe(value) {
 
 export async function signInWithPassword(identifier, password) {
   const user = identifier.trim().toLowerCase();
-  const payload = await readJson(await fetch('/api/auth/login', {
+  const payload = await readJson(await fetch(apiUrl('/api/auth/login'), {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify({ identifier: user, password }),
@@ -42,7 +44,7 @@ export async function signInWithPassword(identifier, password) {
 }
 
 export async function createAccount({ name, email, password, role, volunteerType }) {
-  const payload = await readJson(await fetch('/api/auth/register', {
+  const payload = await readJson(await fetch(apiUrl('/api/auth/register'), {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify({ name, email: email.trim().toLowerCase(), password, role, volunteerType }),
@@ -58,7 +60,7 @@ export async function restoreAuthSession() {
   const token = getToken();
   if (!token) return null;
   try {
-    return await readJson(await fetch('/api/auth/session', { headers: { ...authHeaders(), accept: 'application/json' } }));
+    return await readJson(await fetch(apiUrl('/api/auth/session'), { headers: { ...authHeaders(), accept: 'application/json' } }));
   } catch {
     await signOut();
     return null;
@@ -66,6 +68,6 @@ export async function restoreAuthSession() {
 }
 
 export async function signOut() {
-  try { await fetch('/api/auth/logout', { method: 'POST', headers: authHeaders() }); } catch { /* Local token removal still ends this browser session. */ }
+  try { await fetch(apiUrl('/api/auth/logout'), { method: 'POST', headers: authHeaders() }); } catch { /* Local token removal still ends this browser session. */ }
   try { localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY); } catch { /* Ignore unavailable browser storage. */ }
 }

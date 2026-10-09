@@ -33,6 +33,8 @@ To create a production build:
 npm run build
 ```
 
+For a full hosted deployment with Vercel, Render, and Supabase, follow [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Responder matching and assignment
 
 The dispatcher matcher scores management-approved volunteers by distance within their service radius, incident-relevant listed skills, and current availability. Its default weights are 40/40/20 and can be adjusted in the matcher; weights are normalized before calculating the fit score. Unavailable responders remain visible for context but cannot be selected. The Management room makes the final assignment, with server-side checks for approved and available responders/resources. Volunteer availability is shared with dispatch. Skills on a profile help rank matches but are not certificate-verified by this prototype; Management must verify qualifications before dispatching.
